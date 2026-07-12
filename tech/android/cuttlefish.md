@@ -14,7 +14,39 @@ PC (Linux)
 
 不需要任何手机硬件，在 PC 上完成从源码到运行的全部流程。
 
----
+## ⚡ 核心概念：Host Cuttlefish vs VM Cuttlefish
+
+这是初学者最容易混淆的地方。Cuttlefish 有两个角色，来源和作用完全不同：
+
+| | **Host Cuttlefish（宿主工具）** | **VM Cuttlefish（虚拟机内的 Android）** |
+|---|---|---|
+| **装在** | 你的 Linux PC 上 | Android 虚拟机内部 |
+| **作用** | 创建/管理 Android 虚拟机 | 被宿主运行的 Android 系统 |
+| **代码来源** | GitHub `google/android-cuttlefish` | AOSP `device/google/cuttlefish/` |
+| **安装方式** | `apt install cuttlefish-*` 或 `dpkg -i` | 编译 AOSP 产出系统镜像 |
+| **产物** | `launch_cvd`, `cvd`, `crosvm` 等 CLI 工具 | `boot.img`, `system.img`, `vendor.img` ... |
+| **何时装** | **先装**，在下载 AOSP 之前 | **后装**，编译 AOSP 时产出 |
+
+**打个比喻：**
+
+```
+VMware Workstation（装在你的 PC 上）       ← Host Cuttlefish（launch_cvd / crosvm）
+     ↓ 负责创建和管理
+Ubuntu VM（虚拟机里的操作系统）            ← VM Cuttlefish（AOSP 编译出的 Android 镜像）
+```
+
+`launch_cvd` 相当于 VMware Workstation 的可执行文件，AOSP 编译产物相当于 Ubuntu 的 `.iso` 镜像。**装了 host 包但没编译 AOSP，就等于光驱里没有光盘**——`launch_cvd` 会报错找不到 `boot.img`。
+
+**镜像自动发现机制：** `launch_cvd` 按以下顺序自动查找镜像文件：
+
+```
+1. $ANDROID_PRODUCT_OUT/          ← 如果设置了该环境变量
+2. $HOME/cuttlefish/              ← AOSP make 后的默认产出目录
+3. 当前工作目录
+4. --system_image_pkg / --boot_image / --kernel 等参数指定
+```
+
+所以如果你在同一台机器上编译了 AOSP，直接 `launch_cvd --daemon` 就能找到镜像。如果镜像在别处，需要手动指定路径。
 
 ## 一、环境要求
 
