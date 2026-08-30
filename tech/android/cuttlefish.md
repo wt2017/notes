@@ -157,6 +157,9 @@ source build/envsetup.sh
 # userdebug = 带 root 的调试版本
 lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
 
+# 取消 selinux 安全设置
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
 # 设置 ccache 加速二次编译
 export USE_CCACHE=1
 export CCACHE_DIR=~/.ccache
