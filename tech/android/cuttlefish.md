@@ -151,14 +151,14 @@ export HTTPS_PROXY=http://127.0.0.1:7890
 cd ~/aosp
 source build/envsetup.sh
 
+# 取消 selinux 安全设置
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
 # 选择编译目标
 # aosp_cf_x86_64_phone = Cuttlefish x86_64 虚拟手机
 # trunk_staging = 开发分支
 # userdebug = 带 root 的调试版本
 lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
-
-# 取消 selinux 安全设置
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
 # 设置 ccache 加速二次编译
 export USE_CCACHE=1
