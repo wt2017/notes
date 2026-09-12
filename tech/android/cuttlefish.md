@@ -14,7 +14,10 @@
   - [三、下载 AOSP 源码](#三下载-aosp-源码)
   - [四、编译 AOSP + Cuttlefish 镜像](#四编译-aosp--cuttlefish-镜像)
   - [五、启动 Cuttlefish](#五启动-cuttlefish)
-    - [本机必做前置修复：放宽 crosvm 的 madvise seccomp](#本机必做前置修复放宽-crosvm-的-madvise-seccomp)
+    - [最简启动：三条命令](#最简启动三条命令)
+    - [启动失败？本机必做的前置修复：放宽 crosvm 的 madvise seccomp](#启动失败本机必做的前置修复放宽-crosvm-的-madvise-seccomp)
+    - [扩展：自定义 CPU / 内存 / 分辨率 / 多设备](#扩展自定义-cpu--内存--分辨率--多设备)
+    - [扩展：停止与清理](#扩展停止与清理)
     - [cvd 运行机制：客户端-服务端-实例组](#cvd-运行机制客户端-服务端-实例组)
     - [实例数据存哪？能否自定义？](#实例数据存哪能否自定义)
     - [cvd 常用命令速查](#cvd-常用命令速查)
@@ -218,7 +221,45 @@ m -j$(nproc)
 
 新版入口统一为 `cvd`（旧 `launch_cvd` 已并入 `cvd start`，且不再装到 PATH）。`cvd` 采用客户端-服务端模型，设备自动在后台运行，**不需要 `--daemon`**。
 
-### 本机必做前置修复：放宽 crosvm 的 madvise seccomp
+**核心就三条命令**：加载环境 → 选目标 → `cvd create`。其余（排错、自定义、原理、命令清单）都在后面按需查。
+
+### 最简启动：三条命令
+
+```bash
+cd $HOME/projects/aosp
+source build/envsetup.sh                            # ① 加载构建环境
+lunch aosp_cf_x86_64_phone-trunk_staging-userdebug  # ② 选目标（Cuttlefish x86_64 虚拟手机）
+cvd create                                          # ③ 建实例组并自动开机
+```
+
+第 ② 步不能省：`lunch` 导出 `ANDROID_HOST_OUT` / `ANDROID_PRODUCT_OUT`，`cvd create` 靠这两个变量去 `out/` 找宿主工具和镜像。**产物留在 `out/` 就行，不需要安装到 PATH**——两个变量都没设时 cvd 会一路回退到 `$HOME`，然后报 `'/home/<user>/bin/' does not contain any of '[cvd_internal_start, launch_cvd]'`。真不想 `lunch`，也可以显式传目录（见文末速查）。
+
+`cvd create` 会自动拉起后台守护进程，把终端还给你。查看设备状态：
+
+```bash
+cvd fleet            # 列出实例组 / 设备
+adb devices          # 应看到 localhost:6520  device
+```
+
+浏览器打开 `https://localhost:8443` 看到手机界面（实际端口以启动时 launcher 打印的 `Point your browser to …` 为准，本机当前为 8443）。
+
+```bash
+adb root && adb shell
+whoami                # root
+id                    # uid=0
+getprop ro.build.type # userdebug
+```
+
+**之后每次重新编译后重启：**
+
+```bash
+m                    # 增量编译
+cvd stop && cvd start
+```
+
+### 启动失败？本机必做的前置修复：放宽 crosvm 的 madvise seccomp
+
+> 本机 7.0 内核上，若上面 `cvd create` 一启动就挂，就是这里。沙箱保持开启即可，不用关。
 
 这台 7.0 内核机器**不先做这步**，`cvd create` 一启动就挂：
 
@@ -240,49 +281,20 @@ sed -i 's/^madvise: arg2 ==.*/madvise: 1/' \
   "$S"/video_device.policy "$S"/wl_device.policy
 ```
 
-> 改的是 **`out/` 产物**，`m`/`installclean` 会被还原；**永久化 = 第 1 步**：改源码 `device/google/cuttlefish_vmm/x86_64-linux-gnu/etc/seccomp/` 里同 4 个文件后 `m cvd-host_package`（本机暂未做）。改完即可按下面的启动步骤跑，沙箱保持开启即可；若 `adb devices` 没自动出现 `127.0.0.1:6520`，手动 `adb connect 127.0.0.1:6520`。
+> 改的是 **`out/` 产物**，`m`/`installclean` 会被还原；**永久化 = 第 1 步**：改源码 `device/google/cuttlefish_vmm/x86_64-linux-gnu/etc/seccomp/` 里同 4 个文件后 `m cvd-host_package`（本机暂未做）。改完即可按上面的启动步骤跑；若 `adb devices` 没自动出现 `127.0.0.1:6520`，手动 `adb connect 127.0.0.1:6520`。
+
+### 扩展：自定义 CPU / 内存 / 分辨率 / 多设备
+
+新版参数走 JSON 配置文件，先写好再 `cvd create --config_file`（在已 `lunch` 的同一终端里执行）：
 
 ```bash
-cd ~/aosp
-source build/envsetup.sh
-lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
-
-# 首次启动：创建实例组并自动开机（从 ANDROID_PRODUCT_OUT 找镜像）
-cvd create
-
-# 之后每次重新编译后重启：
-cvd stop && cvd start
-```
-
-`cvd create` 会自动拉起后台守护进程，把终端还给你。查看设备状态：
-
-```bash
-cvd fleet            # 列出实例组 / 设备
-adb devices          # 应看到 localhost:6520  device
-```
-
-浏览器打开 `https://localhost:8443` 看到手机界面（实际端口以启动时 launcher 打印的 `Point your browser to …` 为准，本机当前为 8443）。
-
-```bash
-adb root && adb shell
-whoami                # root
-id                    # uid=0
-getprop ro.build.type # userdebug
-```
-
-**自定义 CPU / 内存 / 分辨率：** 新版参数走 JSON 配置文件，先写好再 `cvd create --config_file`：
-
-```bash
-cd ~/aosp
-source build/envsetup.sh && lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
-
 cat > cf.json <<EOF
 {
   "instances": [
     {
       "vm": { "cpus": 4, "memory_mb": 4096 },
       "graphics": { "displays": [ { "width": 1080, "height": 2340, "dpi": 420 } ] },
-      "disk": { "default_build": "$HOME/aosp/out/target/product/vsoc_x86_64" }
+      "disk": { "default_build": "$HOME/projects/aosp/out/target/product/vsoc_x86_64" }
     }
   ]
 }
@@ -294,9 +306,14 @@ cvd create --config_file=cf.json
 
 **多设备：** 在 JSON 的 `instances` 数组里加多个条目即可，同一实例组内管理，第二个实例的 adb/显示端口递增。
 
-**停止 / 清理：**
+**只想建好先不开机：** `cvd create --start=false`（等价 `--nostart`），要跑时再 `cvd start`。这样 `cvd ps` / `cvd fleet` 里会看到一条 `Stopped` 的实例——这两个命令读的是实例数据库，停机实例照样列出来（`cvd status` 才会去连 launcher，停机时会超时）。
+
+### 扩展：停止与清理
+
 ```bash
 cvd stop              # 关机但保留数据（之后可再 cvd start）
+cvd start             # 重新开机（可反复，状态保留）
+cvd restart           # 重启
 cvd remove            # 彻底删除实例组（日志、虚拟磁盘一并删除）
 cvd reset             # 兜底：杀掉所有 cvd 进程、清理资源
 ```
@@ -360,18 +377,27 @@ cvd create
 ### cvd 常用命令速查
 
 ```bash
-cvd create                                   # 建组并开机；本地构建模式读 ANDROID_PRODUCT_OUT/HOST_OUT
+# —— 每次开工前（核心三步，缺一不可）——
+source build/envsetup.sh                     # 导出 ANDROID_HOST_OUT / ANDROID_PRODUCT_OUT
+lunch aosp_cf_x86_64_phone-trunk_staging-userdebug
+cvd create                                   # 建组并开机；本地构建模式读上面两个变量
+
+# —— 创建 ——
+cvd create --start=false                     # 只建组不开机（等价 --nostart），状态为 Stopped
 cvd create --config_file=cf.json             # 用 JSON 指定 CPU/内存/分辨率/多设备
-cvd create --product_path=DIR --host_path=DIR  # 指定镜像/宿主工具目录（预编译场景）
+cvd create --product_path=DIR --host_path=DIR  # 显式指定镜像/宿主工具目录（不 lunch 或预编译场景）
+
+# —— 生命周期 ——
 cvd start                                    # 开机（重新编译后重启）
 cvd stop                                     # 关机（保留数据）
 cvd restart                                  # 重启
 cvd remove                                   # 彻底删除实例组
 cvd reset                                    # 兜底清场
 
+# —— 查看 ——
 cvd fleet                                    # 列出全部设备（JSON）
-cvd ps                                       # 人类可读设备列表
-cvd status                                   # 某实例组状态
+cvd ps                                       # 人类可读设备列表（含已停机实例）
+cvd status                                   # 某实例组状态（会连 launcher，需在运行）
 cvd logs                                     # 列日志文件；cvd logs -p launcher.log 看指定日志
 cvd monitor                                  # 实时跟踪日志
 
@@ -383,6 +409,14 @@ cvd powerbtn / cvd powerwash / cvd bugreport
 cvd version
 cvd help <command>                           # 任何子命令的帮助
 ```
+
+> **不想 `lunch` 时**，本机的等价路径写死如下：
+> ```bash
+> cvd create \
+>   --host_path=$HOME/projects/aosp/out/host/linux-x86 \
+>   --product_path=$HOME/projects/aosp/out/target/product/vsoc_x86_64
+> ```
+> 注意 **`--host_path` 要填 `bin/` 的上一级**（cvd 自己会拼 `bin/`，见 `host_tool_target.cpp` 的 `GetBinName()`）；填成 `.../linux-x86/bin` 它会去找 `.../bin/bin/cvd_internal_start` 而报错。
 
 > 不想自己编译、想直接跑 Google CI 的现成构建：`--config_file` 里把 `disk.default_build` 写成 `@ab/aosp-android-latest-release/aosp_cf_x86_64_only_phone-userdebug` 即可（或先 `cvd fetch` 再 create）。
 
